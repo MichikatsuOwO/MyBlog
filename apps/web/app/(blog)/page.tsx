@@ -9,7 +9,7 @@ type Post = { slug: string; title: string; excerpt: string; tags: string[]; pinn
 type Project = { slug: string; title: string; description: string; tags: string[]; url: string }
 type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: { label: string; url: string }[] }
 const emptySite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] }
-const displayDate = (value: string | null) => value ? new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", timeZone: "Asia/Shanghai" }).format(new Date(value)) : ""
+const displayDate = (value: string | null) => value ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Shanghai" }).format(new Date(value)) : ""
 
 export default function Home() {
   const [light, setLight] = useState(false), [view, setView] = useState("Home"), [settings, setSettings] = useState(false), [radius, setRadius] = useState(22), [shadow, setShadow] = useState(true), [accent, setAccent] = useState("#9bf443")
