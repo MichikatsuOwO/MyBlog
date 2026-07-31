@@ -10,6 +10,8 @@ import "./about-resume.css"
 import "./empty-state.css"
 import "./admin/admin.css"
 import "./admin/avatar.css"
+import "./admin/writer.css"
 import "./admin/preview.css"
-export const metadata: Metadata = { title: "Paperlane — 个人网站", description: "设计、代码与正在发生的事情。" }
+import "./mobile.css"
+export const metadata: Metadata = { title: "Michikatsu｜个人网站", description: "Michikatsu 的文章、项目与个人介绍" }
 export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="zh-CN"><body>{children}</body></html> }
