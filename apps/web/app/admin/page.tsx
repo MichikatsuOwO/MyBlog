@@ -1,6 +1,6 @@
 "use client"
 import { FormEvent,useState } from "react"
-import { Markdown } from "../../../components/markdown"
+import { Markdown } from "../../components/markdown"
 const api=process.env.NEXT_PUBLIC_API_URL||"http://localhost:8787"
 type Post={id?:number;title:string;slug:string;excerpt:string;content:string;tags:string[];status:"draft"|"hidden"|"published";publishedAt:string|null}
 const empty:Post={title:"",slug:"",excerpt:"",content:"",tags:[],status:"draft",publishedAt:null}

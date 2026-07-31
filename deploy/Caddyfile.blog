@@ -1,0 +1,11 @@
+blog.michikatsu.top {
+  encode zstd gzip
+
+  handle_path /api/* {
+    reverse_proxy blog_api:8787
+  }
+
+  handle {
+    reverse_proxy blog_web:3000
+  }
+}
