@@ -2,14 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Markdown } from "../../components/markdown"
+import { PostEditor } from "../../components/admin-post-editor"
 
 const api = process.env.NEXT_PUBLIC_API_URL || "/api"
 type Status = "draft" | "hidden" | "published"
-type Post = { id?: number; title: string; slug: string; excerpt: string; content: string; tags: string[]; status: Status; publishedAt: string | null }
+type Post = { id?: number; title: string; slug: string; excerpt: string; content: string; tags: string[]; status: Status; pinned: boolean; publishedAt: string | null }
 type Project = { id?: number; title: string; slug: string; description: string; tags: string[]; url: string; status: Status }
 type Link = { label: string; url: string }
 type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: Link[] }
-const blankPost = (): Post => ({ title: "", slug: "", excerpt: "", content: "", tags: [], status: "draft", publishedAt: null })
+const blankPost = (): Post => ({ title: "", slug: "", excerpt: "", content: "", tags: [], status: "draft", pinned: false, publishedAt: null })
 const blankProject = (): Project => ({ title: "", slug: "", description: "", tags: [], url: "", status: "draft" })
 const blankSite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] }
 const statusText: Record<Status, string> = { draft: "草稿", hidden: "隐藏", published: "已发布" }
@@ -58,7 +59,7 @@ export default function Admin() {
 
 function List({ title, hint, count, countLabel, loading, empty, create, items, edit, remove }: { title: string; hint: string; count: number; countLabel: string; loading: boolean; empty: string; create: () => void; items: (Post | Project)[]; edit: (item: Post | Project) => void; remove: (item: Post | Project) => void }) { return <><section className="metrics"><div><span>全部{title}</span><strong>{items.length}</strong></div><div><span>{countLabel}</span><strong>{count}</strong></div><div><span>草稿</span><strong>{items.filter((item) => item.status === "draft").length}</strong></div></section><section className="post-panel"><div className="panel-heading"><div><h2>{title}管理</h2><p>{hint}</p></div><button onClick={create}>+ 新建{title.slice(0, -1) || title}</button></div>{loading ? <div className="empty-admin">正在加载…</div> : items.length ? <div className="post-table"><div className="table-head"><span>名称</span><span>状态</span><span>地址</span><span>操作</span></div>{items.map((item) => <article className="post-row" key={item.id}><div><button className="post-title" onClick={() => edit(item)}>{item.title || "未命名"}</button><p>/{item.slug} · {"excerpt" in item ? item.excerpt || "暂无摘要" : item.description || "暂无描述"}</p></div><span className={`status ${item.status}`}>{statusText[item.status]}</span><span className="row-meta">{"url" in item && item.url ? "已设置链接" : "—"}</span><div className="row-actions"><button className="text-button" onClick={() => edit(item)}>编辑</button><button className="danger-button" onClick={() => remove(item)}>删除</button></div></article>)}</div> : <div className="empty-admin"><div className="empty-icon">✦</div><h3>{empty}</h3><button onClick={create}>立即新建</button></div>}</section></> }
 
-function PostEditor({ post, setPost, preview, setPreview, back, save, loading }: { post: Post; setPost: (post: Post) => void; preview: boolean; setPreview: (value: boolean) => void; back: () => void; save: (event: FormEvent) => void; loading: boolean }) {
+function LegacyPostEditor({ post, setPost, preview, setPreview, back, save, loading }: { post: Post; setPost: (post: Post) => void; preview: boolean; setPreview: (value: boolean) => void; back: () => void; save: (event: FormEvent) => void; loading: boolean }) {
   const contentRef = useRef<HTMLTextAreaElement>(null)
   const words = post.content.trim() ? post.content.trim().split(/\s+/).length : 0
   const insert = (before: string, after = "", fallback = "文字") => { const field = contentRef.current; const start = field?.selectionStart ?? post.content.length; const end = field?.selectionEnd ?? start; const selected = post.content.slice(start, end) || fallback; const next = `${post.content.slice(0, start)}${before}${selected}${after}${post.content.slice(end)}`; setPost({ ...post, content: next }); requestAnimationFrame(() => { field?.focus(); field?.setSelectionRange(start + before.length, start + before.length + selected.length) }) }
