@@ -1,0 +1,6 @@
+{
+  "name":"@paperlane/api", "private":true, "type":"module",
+  "scripts":{"dev":"tsx watch src/index.ts","build":"tsc","start":"node dist/index.js"},
+  "dependencies":{"@aws-sdk/client-s3":"^3.750.0","@aws-sdk/s3-request-presigner":"^3.750.0","@hono/node-server":"^1.14.1","@hono/zod-validator":"^0.4.3","@paperlane/content":"*","hono":"^4.7.4","postgres":"^3.4.5","zod":"^3.24.2"},
+  "devDependencies":{"tsx":"^4.19.3","typescript":"^5.8.2","@types/node":"^22.13.10"}
+}

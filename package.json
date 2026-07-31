@@ -1,0 +1,11 @@
+{
+  "name": "paperlane-blog",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm run dev -w @paperlane/web\" \"npm run dev -w @paperlane/api\"",
+    "build": "npm run build -w @paperlane/content && npm run build -w @paperlane/web && npm run build -w @paperlane/api",
+    "start": "concurrently -n web,api -c cyan,magenta \"npm run start -w @paperlane/web\" \"npm run start -w @paperlane/api\""
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}
