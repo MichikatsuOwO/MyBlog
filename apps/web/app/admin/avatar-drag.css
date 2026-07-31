@@ -1,0 +1,1 @@
+.avatar-preview.draggable{cursor:grab;touch-action:none}.avatar-preview.draggable:active{cursor:grabbing}.avatar-preview.draggable:after{content:"拖动调整位置";position:absolute;right:6px;bottom:6px;border-radius:999px;padding:3px 6px;background:#0009;color:#fff;font-size:10px;pointer-events:none}.avatar-preview img{will-change:transform}
