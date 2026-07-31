@@ -60,6 +60,12 @@ app.put("/admin/posts/:id", zValidator("json", postSchema), async (c) => {
   await sql`update posts set title = ${post.title}, slug = ${post.slug}, excerpt = ${post.excerpt}, content = ${post.content}, tags = ${post.tags}, status = ${post.status}, published_at = ${post.publishedAt}, updated_at = now() where id = ${Number(c.req.param("id"))}`
   return c.json({ ok: true })
 })
+app.delete("/admin/posts/:id", async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  if (!sql) return c.json({ message: "Database not configured" }, 503)
+  await sql`delete from posts where id = ${Number(c.req.param("id"))}`
+  return c.json({ ok: true })
+})
 
 const uploadSchema = z.object({ filename: z.string().min(1).max(120), contentType: z.string().regex(/^image\//) })
 app.post("/uploads/presign", zValidator("json", uploadSchema), async (c) => {
