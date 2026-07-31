@@ -31,6 +31,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - blog_uploads:/app/uploads
     networks: [internal, caddy]
 
   web:
@@ -54,3 +56,4 @@ networks:
 
 volumes:
   blog_postgres_data:
+  blog_uploads:

@@ -7,6 +7,8 @@ import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
 import postgres from "postgres"
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import path from "node:path"
 
 const app = new Hono()
 const sql = process.env.POSTGRES_URL ? postgres(process.env.POSTGRES_URL) : null
@@ -17,7 +19,7 @@ const projectSchema = z.object({
   title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), description: z.string().default(""), tags: z.array(z.string()).default([]), url: z.string().url().or(z.literal("")), status: z.enum(["draft", "hidden", "published"]),
 })
 const siteSchema = z.object({
-  displayName: z.string().max(80).default(""), handle: z.string().max(80).default(""), avatarUrl: z.string().url().or(z.literal("")), homeIntro: z.string().max(240).default(""), aboutTitle: z.string().max(120).default(""), aboutContent: z.string().max(12000).default(""), links: z.array(z.object({ label: z.string().min(1).max(40), url: z.string().url() })).max(8).default([]),
+  displayName: z.string().max(80).default(""), handle: z.string().max(80).default(""), avatarUrl: z.string().max(500).default(""), homeIntro: z.string().max(240).default(""), aboutTitle: z.string().max(120).default(""), aboutContent: z.string().max(12000).default(""), links: z.array(z.object({ label: z.string().min(1).max(40), url: z.string().url() })).max(8).default([]),
 })
 const sign = (value: string) => createHmac("sha256", process.env.ADMIN_TOKEN_SECRET || "dev-only-secret").update(value).digest("hex")
 const authenticated = (c: any) => {
@@ -95,6 +97,26 @@ app.put("/admin/site", zValidator("json", siteSchema), async (c) => {
   const site = c.req.valid("json")
   await sql`insert into site_profile ${sql({ id: 1, display_name: site.displayName, handle: site.handle, avatar_url: site.avatarUrl, home_intro: site.homeIntro, about_title: site.aboutTitle, about_content: site.aboutContent, links: sql.json(site.links) })} on conflict (id) do update set display_name = excluded.display_name, handle = excluded.handle, avatar_url = excluded.avatar_url, home_intro = excluded.home_intro, about_title = excluded.about_title, about_content = excluded.about_content, links = excluded.links, updated_at = now()`
   return c.json({ ok: true })
+})
+const uploadDirectory = process.env.UPLOAD_DIR || "/app/uploads"
+const imageTypes: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }
+app.post("/admin/uploads/avatar", async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  const body = await c.req.parseBody()
+  const file = body.file
+  if (!(file instanceof File) || !imageTypes[file.type] || file.size > 5 * 1024 * 1024) return c.json({ message: "请上传不超过 5MB 的 JPG、PNG 或 WebP 图片。" }, 400)
+  await mkdir(uploadDirectory, { recursive: true })
+  const filename = `avatar-${crypto.randomUUID()}.${imageTypes[file.type]}`
+  await writeFile(path.join(uploadDirectory, filename), Buffer.from(await file.arrayBuffer()))
+  return c.json({ url: `/api/uploads/${filename}` }, 201)
+})
+app.get("/uploads/:filename", async (c) => {
+  const filename = c.req.param("filename")
+  if (!/^avatar-[a-f0-9-]+\.(jpg|png|webp)$/.test(filename)) return c.notFound()
+  try {
+    const contentType = filename.endsWith(".png") ? "image/png" : filename.endsWith(".webp") ? "image/webp" : "image/jpeg"
+    return new Response(await readFile(path.join(uploadDirectory, filename)), { headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=31536000, immutable" } })
+  } catch { return c.notFound() }
 })
 app.post("/admin/posts", zValidator("json", postSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
