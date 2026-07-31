@@ -5,10 +5,11 @@ import { CSSProperties, useEffect, useState } from "react"
 import { Markdown } from "../../components/markdown"
 
 const api = process.env.NEXT_PUBLIC_API_URL || "/api"
-type Post = { slug: string; title: string; excerpt: string; tags: string[]; date: string | null }
+type Post = { slug: string; title: string; excerpt: string; tags: string[]; pinned: boolean; date: string | null }
 type Project = { slug: string; title: string; description: string; tags: string[]; url: string }
 type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: { label: string; url: string }[] }
 const emptySite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] }
+const displayDate = (value: string | null) => value ? new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", timeZone: "Asia/Shanghai" }).format(new Date(value)) : ""
 
 export default function Home() {
   const [light, setLight] = useState(false), [view, setView] = useState("Home"), [settings, setSettings] = useState(false), [radius, setRadius] = useState(22), [serif, setSerif] = useState(false), [shadow, setShadow] = useState(true), [accent, setAccent] = useState("#9bf443")
@@ -26,7 +27,8 @@ export default function Home() {
   </div>
 }
 
-function HomeView({ posts, intro }: { posts: Post[]; intro: string }) { return <><section className="title"><h2>Home</h2><p>{intro || "暂未添加首页简介。"}</p></section><section className="list">{posts.length ? posts.slice(0, 5).map((post, index) => <Link className="list-row" href={`/posts/${post.slug}`} key={post.slug}><span>{String(index + 1).padStart(2, "0")}</span><strong>{post.title}</strong><b>↗</b></Link>) : <p className="empty-state">还没有已发布的文章。</p>}</section></> }
+function HomeView({ posts, intro }: { posts: Post[]; intro: string }) { return <><section className="title"><h2>Home</h2><p>{intro || "暂未添加首页简介。"}</p></section><PostFeed posts={posts.slice(0, 5)} empty="还没有已发布的文章。" /></> }
 function Projects({ projects }: { projects: Project[] }) { return <><section className="title"><h2>Projects</h2><p>已发布的项目会显示在这里。</p></section>{projects.length ? <section className="grid">{projects.map((project) => <article className="card" key={project.slug}><div className="card-body"><h3>{project.title}</h3><p>{project.description}</p><div className="tags">{project.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>{project.url && <a className="project-link" href={project.url} target="_blank" rel="noreferrer">访问项目 ↗</a>}</div></article>)}</section> : <p className="empty-state">还没有已发布的项目。</p>}</> }
-function Blog({ posts }: { posts: Post[] }) { return <><section className="title"><h2>Blog</h2><p>所有已发布文章均来自数据库。</p></section><section className="list">{posts.length ? posts.map((post, index) => <Link className="list-row" href={`/posts/${post.slug}`} key={post.slug}><span>{String(index + 1).padStart(2, "0")}</span><strong>{post.title}</strong><b>↗</b></Link>) : <p className="empty-state">还没有已发布的文章。</p>}</section></> }
+function Blog({ posts }: { posts: Post[] }) { return <><section className="title"><h2>Blog</h2><p>置顶文章会优先展示，其他文章按发布时间排列。</p></section><PostFeed posts={posts} empty="还没有已发布的文章。" /></> }
+function PostFeed({ posts, empty }: { posts: Post[]; empty: string }) { return <section className="post-feed">{posts.length ? posts.map((post) => <Link className="post-preview" href={`/posts/${post.slug}`} key={post.slug}><div className="post-preview-meta">{post.pinned && <span className="pin-badge">置顶</span>}<time>{displayDate(post.date)}</time></div><h3>{post.title}</h3><p>{post.excerpt || "这篇文章暂未填写摘要。"}</p><footer><span>{post.tags.slice(0, 3).join(" · ") || "文章"}</span><b>阅读全文 →</b></footer></Link>) : <p className="empty-state">{empty}</p>}</section> }
 function About({ site }: { site: Site }) { return <><section className="title"><h2>{site.aboutTitle || "About"}</h2><p>{site.aboutContent ? "" : "暂未添加个人介绍。"}</p></section>{site.aboutContent && <section className="about-content"><Markdown content={site.aboutContent} /></section>}</> }

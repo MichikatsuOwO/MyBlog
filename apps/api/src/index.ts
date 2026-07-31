@@ -13,7 +13,7 @@ import path from "node:path"
 const app = new Hono()
 const sql = process.env.POSTGRES_URL ? postgres(process.env.POSTGRES_URL) : null
 const postSchema = z.object({
-  title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), excerpt: z.string().default(""), content: z.string().default(""), tags: z.array(z.string()).default([]), status: z.enum(["draft", "hidden", "published"]), publishedAt: z.string().nullable(),
+  title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), excerpt: z.string().default(""), content: z.string().default(""), tags: z.array(z.string()).default([]), status: z.enum(["draft", "hidden", "published"]), pinned: z.boolean().default(false), publishedAt: z.string().nullable(),
 })
 const projectSchema = z.object({
   title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), description: z.string().default(""), tags: z.array(z.string()).default([]), url: z.string().url().or(z.literal("")), status: z.enum(["draft", "hidden", "published"]),
@@ -33,6 +33,7 @@ const authenticated = (c: any) => {
 
 if (sql) {
   await sql`create table if not exists posts (id serial primary key, title text not null, slug text unique not null, excerpt text not null default '', content text not null default '', tags text[] not null default '{}', status text not null default 'draft', published_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now())`
+  await sql`alter table posts add column if not exists pinned boolean not null default false`
   await sql`create table if not exists projects (id serial primary key, title text not null, slug text unique not null, description text not null default '', tags text[] not null default '{}', url text not null default '', status text not null default 'draft', created_at timestamptz not null default now(), updated_at timestamptz not null default now())`
   await sql`alter table projects add column if not exists url text not null default ''`
   await sql`create table if not exists site_profile (id smallint primary key default 1 check (id = 1), display_name text not null default '', handle text not null default '', avatar_url text not null default '', home_intro text not null default '', about_title text not null default '', about_content text not null default '', links jsonb not null default '[]'::jsonb, updated_at timestamptz not null default now())`
@@ -40,7 +41,7 @@ if (sql) {
 
 app.use("/*", cors({ origin: process.env.ALLOWED_ORIGIN || "http://localhost:3000" }))
 app.get("/health", (c) => c.json({ ok: true }))
-app.get("/posts", async (c) => c.json(sql ? await sql`select slug, title, excerpt, tags, published_at as date from posts where status = 'published' and published_at <= now() order by published_at desc` : []))
+app.get("/posts", async (c) => c.json(sql ? await sql`select slug, title, excerpt, tags, pinned, published_at as date from posts where status = 'published' and published_at <= now() order by pinned desc, published_at desc` : []))
 app.get("/posts/:slug", async (c) => {
   if (!sql) return c.json({ message: "Not found" }, 404)
   const [post] = await sql`select title, published_at as date, tags, content as body from posts where slug = ${c.req.param("slug")} and status = 'published' and published_at <= now()`
@@ -59,7 +60,7 @@ app.post("/admin/login", zValidator("json", z.object({ password: z.string() })),
 })
 app.get("/admin/posts", async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
-  return c.json(sql ? await sql`select id, title, slug, excerpt, content, tags, status, published_at as "publishedAt" from posts order by updated_at desc` : [])
+  return c.json(sql ? await sql`select id, title, slug, excerpt, content, tags, status, pinned, published_at as "publishedAt" from posts order by pinned desc, updated_at desc` : [])
 })
 app.get("/admin/projects", async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
@@ -122,14 +123,14 @@ app.post("/admin/posts", zValidator("json", postSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
   if (!sql) return c.json({ message: "Database not configured" }, 503)
   const post = c.req.valid("json")
-  const [row] = await sql`insert into posts ${sql({ title: post.title, slug: post.slug, excerpt: post.excerpt, content: post.content, tags: post.tags, status: post.status, published_at: post.publishedAt })} returning id`
+  const [row] = await sql`insert into posts ${sql({ title: post.title, slug: post.slug, excerpt: post.excerpt, content: post.content, tags: post.tags, status: post.status, pinned: post.pinned, published_at: post.publishedAt })} returning id`
   return c.json(row, 201)
 })
 app.put("/admin/posts/:id", zValidator("json", postSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
   if (!sql) return c.json({ message: "Database not configured" }, 503)
   const post = c.req.valid("json")
-  await sql`update posts set title = ${post.title}, slug = ${post.slug}, excerpt = ${post.excerpt}, content = ${post.content}, tags = ${post.tags}, status = ${post.status}, published_at = ${post.publishedAt}, updated_at = now() where id = ${Number(c.req.param("id"))}`
+  await sql`update posts set title = ${post.title}, slug = ${post.slug}, excerpt = ${post.excerpt}, content = ${post.content}, tags = ${post.tags}, status = ${post.status}, pinned = ${post.pinned}, published_at = ${post.publishedAt}, updated_at = now() where id = ${Number(c.req.param("id"))}`
   return c.json({ ok: true })
 })
 app.delete("/admin/posts/:id", async (c) => {
