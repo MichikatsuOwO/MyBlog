@@ -4,163 +4,63 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 import { Markdown } from "../../components/markdown"
 
 const api = process.env.NEXT_PUBLIC_API_URL || "/api"
-
 type Status = "draft" | "hidden" | "published"
-type Post = {
-  id?: number
-  title: string
-  slug: string
-  excerpt: string
-  content: string
-  tags: string[]
-  status: Status
-  publishedAt: string | null
-}
-
-const emptyPost = (): Post => ({ title: "", slug: "", excerpt: "", content: "", tags: [], status: "draft", publishedAt: null })
-const statusLabel: Record<Status, string> = { draft: "草稿", hidden: "隐藏", published: "已发布" }
-
-function toLocalDateTime(value: string | null) {
-  if (!value) return ""
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? "" : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "未设置"
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? "未设置" : date.toLocaleDateString("zh-CN", { year: "numeric", month: "short", day: "numeric" })
-}
+type Post = { id?: number; title: string; slug: string; excerpt: string; content: string; tags: string[]; status: Status; publishedAt: string | null }
+type Project = { id?: number; title: string; slug: string; description: string; tags: string[]; url: string; status: Status }
+type Link = { label: string; url: string }
+type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: Link[] }
+const blankPost = (): Post => ({ title: "", slug: "", excerpt: "", content: "", tags: [], status: "draft", publishedAt: null })
+const blankProject = (): Project => ({ title: "", slug: "", description: "", tags: [], url: "", status: "draft" })
+const blankSite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] }
+const statusText: Record<Status, string> = { draft: "草稿", hidden: "隐藏", published: "已发布" }
+const toLocalTime = (date: string | null) => date ? new Date(new Date(date).getTime() - new Date(date).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""
+const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
 
 export default function Admin() {
-  const [token, setToken] = useState("")
-  const [password, setPassword] = useState("")
-  const [posts, setPosts] = useState<Post[]>([])
-  const [post, setPost] = useState<Post>(emptyPost)
-  const [screen, setScreen] = useState<"list" | "editor">("list")
-  const [preview, setPreview] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [notice, setNotice] = useState("")
+  const [token, setToken] = useState(""), [password, setPassword] = useState(""), [section, setSection] = useState<"posts" | "projects" | "site">("posts"), [mode, setMode] = useState<"list" | "edit">("list")
+  const [posts, setPosts] = useState<Post[]>([]), [projects, setProjects] = useState<Project[]>([]), [site, setSite] = useState<Site>(blankSite), [post, setPost] = useState<Post>(blankPost), [project, setProject] = useState<Project>(blankProject)
+  const [preview, setPreview] = useState(false), [loading, setLoading] = useState(false), [notice, setNotice] = useState("")
 
-  const loadPosts = async (accessToken = token) => {
+  const request = async (path: string, init: RequestInit = {}) => fetch(`${api}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.headers || {}) } })
+  const load = async (accessToken = token) => {
     if (!accessToken) return
     setLoading(true)
-    const response = await fetch(`${api}/admin/posts`, { headers: { Authorization: `Bearer ${accessToken}` } })
-    if (response.ok) setPosts(await response.json())
-    else if (response.status === 401) {
-      sessionStorage.removeItem("blog-admin-token")
-      setToken("")
-      setNotice("登录已过期，请重新登录。")
-    } else setNotice("文章列表加载失败，请稍后重试。")
+    const headers = { Authorization: `Bearer ${accessToken}` }
+    const [postsResponse, projectsResponse, siteResponse] = await Promise.all([fetch(`${api}/admin/posts`, { headers }), fetch(`${api}/admin/projects`, { headers }), fetch(`${api}/admin/site`, { headers })])
+    if (postsResponse.status === 401) { sessionStorage.removeItem("blog-admin-token"); setToken(""); setNotice("登录已过期，请重新登录。"); setLoading(false); return }
+    if (postsResponse.ok) setPosts(await postsResponse.json())
+    if (projectsResponse.ok) setProjects(await projectsResponse.json())
+    if (siteResponse.ok) { const nextSite = await siteResponse.json(); setSite({ ...blankSite, ...nextSite, links: Array.isArray(nextSite.links) ? nextSite.links : [] }) }
     setLoading(false)
   }
+  useEffect(() => { const saved = sessionStorage.getItem("blog-admin-token"); if (saved) { setToken(saved); void load(saved) } }, [])
+  const stats = useMemo(() => ({ posts: posts.length, projects: projects.length, published: posts.filter((item) => item.status === "published").length }), [posts, projects])
 
-  useEffect(() => {
-    const savedToken = sessionStorage.getItem("blog-admin-token")
-    if (savedToken) {
-      setToken(savedToken)
-      void loadPosts(savedToken)
-    }
-  }, [])
+  const login = async (event: FormEvent) => { event.preventDefault(); setNotice(""); const response = await fetch(`${api}/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }); if (!response.ok) return setNotice("密码不正确，请重试。"); const data = await response.json(); sessionStorage.setItem("blog-admin-token", data.token); setToken(data.token); setPassword(""); void load(data.token) }
+  const savePost = async (event: FormEvent) => { event.preventDefault(); if (!post.title || !post.slug) return setNotice("文章需要标题和 slug。"); setLoading(true); const response = await request(`/admin/posts${post.id ? `/${post.id}` : ""}`, { method: post.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(post) }); setLoading(false); if (!response.ok) return setNotice("保存失败，请检查 slug 是否唯一且仅含英文、数字、连字符。"); setNotice(post.status === "published" ? "文章已发布。" : "草稿已保存。"); setMode("list"); await load() }
+  const saveProject = async (event: FormEvent) => { event.preventDefault(); if (!project.title || !project.slug) return setNotice("项目需要名称和 slug。"); setLoading(true); const response = await request(`/admin/projects${project.id ? `/${project.id}` : ""}`, { method: project.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project) }); setLoading(false); if (!response.ok) return setNotice("项目保存失败，请检查链接和 slug。"); setNotice(project.status === "published" ? "项目已发布。" : "项目草稿已保存。"); setMode("list"); await load() }
+  const saveSite = async (event: FormEvent) => { event.preventDefault(); setLoading(true); const response = await request("/admin/site", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(site) }); setLoading(false); if (!response.ok) return setNotice("站点资料保存失败，请检查头像和链接地址。"); setNotice("站点资料已保存，前台刷新后即可看到更新。"); await load() }
+  const remove = async (kind: "posts" | "projects", item: Post | Project) => { if (!item.id || !window.confirm(`确定删除《${item.title}》吗？`)) return; setLoading(true); const response = await request(`/admin/${kind}/${item.id}`, { method: "DELETE" }); setLoading(false); if (!response.ok) return setNotice("删除失败，请稍后重试。"); setNotice("已删除。"); await load() }
+  const logout = () => { sessionStorage.removeItem("blog-admin-token"); setToken(""); setNotice("") }
 
-  const metrics = useMemo(() => ({
-    all: posts.length,
-    published: posts.filter((item) => item.status === "published").length,
-    draft: posts.filter((item) => item.status === "draft").length,
-  }), [posts])
-
-  const login = async (event: FormEvent) => {
-    event.preventDefault()
-    setNotice("")
-    const response = await fetch(`${api}/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) })
-    if (!response.ok) return setNotice("密码不正确，请重试。")
-    const result = await response.json()
-    sessionStorage.setItem("blog-admin-token", result.token)
-    setToken(result.token)
-    setPassword("")
-    void loadPosts(result.token)
-  }
-
-  const createPost = () => {
-    setPost(emptyPost())
-    setPreview(false)
-    setNotice("")
-    setScreen("editor")
-  }
-
-  const editPost = (item: Post) => {
-    setPost({ ...item, tags: item.tags || [] })
-    setPreview(false)
-    setNotice("")
-    setScreen("editor")
-  }
-
-  const savePost = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!post.title.trim() || !post.slug.trim()) return setNotice("请先填写文章标题和 URL 标识（slug）。")
-    setLoading(true)
-    const response = await fetch(`${api}/admin/posts${post.id ? `/${post.id}` : ""}`, {
-      method: post.id ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(post),
-    })
-    setLoading(false)
-    if (!response.ok) {
-      const result = await response.json().catch(() => null)
-      return setNotice(result?.message || "保存失败，请检查 slug 是否只包含英文小写字母、数字和连字符。")
-    }
-    setNotice(post.status === "published" ? "文章已发布。" : "草稿已保存。")
-    await loadPosts()
-    setScreen("list")
-  }
-
-  const deletePost = async (item: Post) => {
-    if (!item.id || !window.confirm(`确定删除《${item.title}》吗？此操作不可恢复。`)) return
-    setLoading(true)
-    const response = await fetch(`${api}/admin/posts/${item.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
-    setLoading(false)
-    if (!response.ok) return setNotice("删除失败，请稍后重试。")
-    setNotice("文章已删除。")
-    await loadPosts()
-  }
-
-  const logout = () => {
-    sessionStorage.removeItem("blog-admin-token")
-    setToken("")
-    setPosts([])
-    setNotice("")
-  }
-
-  if (!token) return <main className="admin login-page"><form className="login" onSubmit={login}><span className="eyebrow">MICHIKATSU / ADMIN</span><h1>内容管理</h1><p>登录后管理文章、草稿和发布状态。</p><label>管理密码<input type="password" autoFocus placeholder="输入密码" value={password} onChange={(event) => setPassword(event.target.value)} /></label><button>进入后台</button>{notice && <p className="notice error">{notice}</p>}</form></main>
+  if (!token) return <main className="admin login-page"><form className="login" onSubmit={login}><span className="eyebrow">MICHIKATSU / ADMIN</span><h1>内容管理</h1><p>统一管理个人资料、页面内容、项目与文章。</p><label>管理密码<input type="password" autoFocus placeholder="输入密码" value={password} onChange={(event) => setPassword(event.target.value)} /></label><button>进入后台</button>{notice && <p className="notice error">{notice}</p>}</form></main>
 
   return <main className="admin">
-    <header className="admin-header">
-      <div><span className="eyebrow">MICHIKATSU / CONTENT</span><h1>文章管理</h1></div>
-      <div className="header-actions"><a href="/" target="_blank" rel="noreferrer">查看网站 ↗</a><button className="text-button" onClick={logout}>退出</button><button onClick={createPost}>+ 新建文章</button></div>
-    </header>
-
+    <header className="admin-header"><div><span className="eyebrow">MICHIKATSU / CONTENT</span><h1>站点管理</h1></div><div className="header-actions"><a href="/" target="_blank" rel="noreferrer">查看网站 ↗</a><button className="text-button" onClick={logout}>退出</button></div></header>
+    <nav className="admin-nav"><button className={section === "posts" ? "active" : ""} onClick={() => { setSection("posts"); setMode("list") }}>文章 <span>{stats.posts}</span></button><button className={section === "projects" ? "active" : ""} onClick={() => { setSection("projects"); setMode("list") }}>项目 <span>{stats.projects}</span></button><button className={section === "site" ? "active" : ""} onClick={() => { setSection("site"); setMode("list") }}>站点资料</button></nav>
     {notice && <div className="notice">{notice}<button className="dismiss" onClick={() => setNotice("")}>×</button></div>}
-
-    {screen === "list" ? <>
-      <section className="metrics" aria-label="文章统计">
-        <div><span>全部文章</span><strong>{metrics.all}</strong></div><div><span>已发布</span><strong>{metrics.published}</strong></div><div><span>草稿</span><strong>{metrics.draft}</strong></div>
-      </section>
-      <section className="post-panel">
-        <div className="panel-heading"><div><h2>所有文章</h2><p>在这里管理内容，点击文章即可继续编辑。</p></div><button onClick={createPost}>新建文章</button></div>
-        {loading ? <div className="empty-admin">正在加载文章…</div> : posts.length === 0 ? <div className="empty-admin"><div className="empty-icon">✦</div><h3>还没有文章</h3><p>从第一篇开始吧。草稿只有你能看到，发布后会出现在博客首页。</p><button onClick={createPost}>写第一篇文章</button></div> : <div className="post-table">
-          <div className="table-head"><span>文章</span><span>状态</span><span>发布日期</span><span>操作</span></div>
-          {posts.map((item) => <article className="post-row" key={item.id}><div><button className="post-title" onClick={() => editPost(item)}>{item.title || "未命名文章"}</button><p>/{item.slug} · {item.excerpt || "暂无摘要"}</p></div><span className={`status ${item.status}`}>{statusLabel[item.status]}</span><time>{formatDate(item.publishedAt)}</time><div className="row-actions"><button className="text-button" onClick={() => editPost(item)}>编辑</button><button className="danger-button" onClick={() => deletePost(item)}>删除</button></div></article>)}
-        </div>}
-      </section>
-    </> : <section className="editor-shell">
-      <div className="editor-top"><button className="back-button" onClick={() => { setScreen("list"); setNotice("") }}>← 返回文章列表</button><span>{post.id ? "编辑文章" : "新建文章"}</span></div>
-      <form className="editor" onSubmit={savePost}>
-        <div className="editor-main"><input className="title-input" placeholder="文章标题" value={post.title} onChange={(event) => setPost({ ...post, title: event.target.value })} /><div className="slug-field"><span>blog.michikatsu.top/posts/</span><input aria-label="URL 标识" placeholder="article-slug" value={post.slug} onChange={(event) => setPost({ ...post, slug: event.target.value.toLowerCase().replace(/\s+/g, "-") })} /></div><textarea className="excerpt-input" placeholder="给读者的一句话摘要（可选）" value={post.excerpt} onChange={(event) => setPost({ ...post, excerpt: event.target.value })} />
-          <div className="content-header"><span>正文（Markdown）</span><button type="button" className="text-button" onClick={() => setPreview(!preview)}>{preview ? "继续编辑" : "预览文章"}</button></div>
-          {preview ? <div className="markdown-preview"><Markdown content={post.content || "# 预览\n\n开始写作后，内容会显示在这里。"} /></div> : <textarea className="content" placeholder={'# 开始写作\n\n支持 **加粗**、`代码`、[链接](https://example.com) 和图片。'} value={post.content} onChange={(event) => setPost({ ...post, content: event.target.value })} />}
-        </div>
-        <aside className="publish-panel"><h2>发布设置</h2><label>状态<select value={post.status} onChange={(event) => setPost({ ...post, status: event.target.value as Status })}><option value="draft">草稿</option><option value="published">发布</option><option value="hidden">隐藏</option></select></label><label>发布时间<input type="datetime-local" value={toLocalDateTime(post.publishedAt)} onChange={(event) => setPost({ ...post, publishedAt: event.target.value ? new Date(event.target.value).toISOString() : null })} /></label><label>标签<input placeholder="例如：随笔, 技术, 日常" value={post.tags.join(", ")} onChange={(event) => setPost({ ...post, tags: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })} /></label><button disabled={loading}>{loading ? "正在保存…" : post.status === "published" ? "发布文章" : "保存草稿"}</button><p>发布时请设置发布时间；留空的文章不会展示在首页。</p></aside>
-      </form>
-    </section>}
+    {section === "posts" && (mode === "list" ? <List title="文章" hint="发布的文章会显示在首页和 Blog 页面。" count={stats.published} countLabel="已发布" loading={loading} empty="还没有文章，从第一篇开始吧。" create={() => { setPost(blankPost()); setPreview(false); setMode("edit") }} items={posts} edit={(item) => { setPost(item as Post); setPreview(false); setMode("edit") }} remove={(item) => remove("posts", item)} /> : <PostEditor post={post} setPost={setPost} preview={preview} setPreview={setPreview} back={() => setMode("list")} save={savePost} loading={loading} />)}
+    {section === "projects" && (mode === "list" ? <List title="项目" hint="项目可以附带官网、仓库或作品链接。" count={projects.filter((item) => item.status === "published").length} countLabel="已发布" loading={loading} empty="还没有项目，添加一个作品吧。" create={() => { setProject(blankProject()); setMode("edit") }} items={projects} edit={(item) => { setProject(item as Project); setMode("edit") }} remove={(item) => remove("projects", item)} /> : <ProjectEditor project={project} setProject={setProject} back={() => setMode("list")} save={saveProject} loading={loading} />)}
+    {section === "site" && <SiteEditor site={site} setSite={setSite} save={saveSite} loading={loading} />}
   </main>
 }
+
+function List({ title, hint, count, countLabel, loading, empty, create, items, edit, remove }: { title: string; hint: string; count: number; countLabel: string; loading: boolean; empty: string; create: () => void; items: (Post | Project)[]; edit: (item: Post | Project) => void; remove: (item: Post | Project) => void }) { return <><section className="metrics"><div><span>全部{title}</span><strong>{items.length}</strong></div><div><span>{countLabel}</span><strong>{count}</strong></div><div><span>草稿</span><strong>{items.filter((item) => item.status === "draft").length}</strong></div></section><section className="post-panel"><div className="panel-heading"><div><h2>{title}管理</h2><p>{hint}</p></div><button onClick={create}>+ 新建{title.slice(0, -1) || title}</button></div>{loading ? <div className="empty-admin">正在加载…</div> : items.length ? <div className="post-table"><div className="table-head"><span>名称</span><span>状态</span><span>地址</span><span>操作</span></div>{items.map((item) => <article className="post-row" key={item.id}><div><button className="post-title" onClick={() => edit(item)}>{item.title || "未命名"}</button><p>/{item.slug} · {"excerpt" in item ? item.excerpt || "暂无摘要" : item.description || "暂无描述"}</p></div><span className={`status ${item.status}`}>{statusText[item.status]}</span><span className="row-meta">{"url" in item && item.url ? "已设置链接" : "—"}</span><div className="row-actions"><button className="text-button" onClick={() => edit(item)}>编辑</button><button className="danger-button" onClick={() => remove(item)}>删除</button></div></article>)}</div> : <div className="empty-admin"><div className="empty-icon">✦</div><h3>{empty}</h3><button onClick={create}>立即新建</button></div>}</section></> }
+
+function PostEditor({ post, setPost, preview, setPreview, back, save, loading }: { post: Post; setPost: (post: Post) => void; preview: boolean; setPreview: (value: boolean) => void; back: () => void; save: (event: FormEvent) => void; loading: boolean }) { return <section className="editor-shell"><div className="editor-top"><button className="back-button" onClick={back}>← 返回文章列表</button><span>{post.id ? "编辑文章" : "新建文章"}</span></div><form className="editor" onSubmit={save}><div className="editor-main"><input className="title-input" placeholder="文章标题" value={post.title} onChange={(event) => setPost({ ...post, title: event.target.value, slug: post.slug || slugify(event.target.value) })} /><div className="slug-field"><span>blog.michikatsu.top/posts/</span><input placeholder="article-slug" value={post.slug} onChange={(event) => setPost({ ...post, slug: slugify(event.target.value) })} /></div><textarea className="excerpt-input" placeholder="文章摘要（可选）" value={post.excerpt} onChange={(event) => setPost({ ...post, excerpt: event.target.value })} /><div className="content-header"><span>正文（Markdown）</span><button type="button" className="text-button" onClick={() => setPreview(!preview)}>{preview ? "继续编辑" : "预览文章"}</button></div>{preview ? <div className="markdown-preview"><Markdown content={post.content || "# 预览\n\n开始写作后，内容会显示在这里。"} /></div> : <textarea className="content" placeholder="# 开始写作" value={post.content} onChange={(event) => setPost({ ...post, content: event.target.value })} />}</div><PublishPanel status={post.status} setStatus={(status) => setPost({ ...post, status })} tags={post.tags} setTags={(tags) => setPost({ ...post, tags })} date={post.publishedAt} setDate={(publishedAt) => setPost({ ...post, publishedAt })} loading={loading} /></form></section> }
+
+function ProjectEditor({ project, setProject, back, save, loading }: { project: Project; setProject: (project: Project) => void; back: () => void; save: (event: FormEvent) => void; loading: boolean }) { return <section className="editor-shell"><div className="editor-top"><button className="back-button" onClick={back}>← 返回项目列表</button><span>{project.id ? "编辑项目" : "新建项目"}</span></div><form className="editor" onSubmit={save}><div className="editor-main"><input className="title-input" placeholder="项目名称" value={project.title} onChange={(event) => setProject({ ...project, title: event.target.value, slug: project.slug || slugify(event.target.value) })} /><div className="slug-field"><span>项目标识 /</span><input placeholder="project-slug" value={project.slug} onChange={(event) => setProject({ ...project, slug: slugify(event.target.value) })} /></div><textarea className="content project-description" placeholder="用几句话介绍这个项目" value={project.description} onChange={(event) => setProject({ ...project, description: event.target.value })} /><label className="plain-label">项目链接<input placeholder="https://github.com/..." value={project.url} onChange={(event) => setProject({ ...project, url: event.target.value })} /></label></div><PublishPanel status={project.status} setStatus={(status) => setProject({ ...project, status })} tags={project.tags} setTags={(tags) => setProject({ ...project, tags })} loading={loading} /></form></section> }
+
+function PublishPanel({ status, setStatus, tags, setTags, date, setDate, loading }: { status: Status; setStatus: (status: Status) => void; tags: string[]; setTags: (tags: string[]) => void; date?: string | null; setDate?: (date: string | null) => void; loading: boolean }) { return <aside className="publish-panel"><h2>发布设置</h2><label>状态<select value={status} onChange={(event) => setStatus(event.target.value as Status)}><option value="draft">草稿</option><option value="published">发布</option><option value="hidden">隐藏</option></select></label>{setDate && <label>发布时间<input type="datetime-local" value={toLocalTime(date || null)} onChange={(event) => setDate(event.target.value ? new Date(event.target.value).toISOString() : null)} /></label>}<label>标签<input placeholder="例如：设计, 技术" value={tags.join(", ")} onChange={(event) => setTags(event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></label><button disabled={loading}>{loading ? "正在保存…" : status === "published" ? "发布" : "保存草稿"}</button></aside> }
+
+function SiteEditor({ site, setSite, save, loading }: { site: Site; setSite: (site: Site) => void; save: (event: FormEvent) => void; loading: boolean }) { const updateLink = (index: number, field: keyof Link, value: string) => setSite({ ...site, links: site.links.map((link, current) => current === index ? { ...link, [field]: value } : link) }); return <form className="site-editor" onSubmit={save}><section className="post-panel"><div className="panel-heading"><div><h2>个人资料与首页</h2><p>控制侧边栏头像、名称、账号和首页介绍。</p></div><button disabled={loading}>保存资料</button></div><div className="form-grid"><label>显示名称<input value={site.displayName} placeholder="例如：Michikatsu" onChange={(event) => setSite({ ...site, displayName: event.target.value })} /></label><label>账号（不含 @）<input value={site.handle} placeholder="yourhandle" onChange={(event) => setSite({ ...site, handle: event.target.value.replace(/^@/, "") })} /></label><label className="full">头像图片地址<input value={site.avatarUrl} placeholder="https://.../avatar.jpg" onChange={(event) => setSite({ ...site, avatarUrl: event.target.value })} /></label><label className="full">首页简介<textarea value={site.homeIntro} placeholder="写一句欢迎语或个人定位" onChange={(event) => setSite({ ...site, homeIntro: event.target.value })} /></label></div></section><section className="post-panel"><div className="panel-heading"><div><h2>个人链接</h2><p>例如 GitHub、邮箱、X、Bilibili 或作品集。</p></div><button type="button" className="text-button" onClick={() => setSite({ ...site, links: [...site.links, { label: "", url: "" }] })}>+ 添加链接</button></div><div className="link-list">{site.links.length ? site.links.map((link, index) => <div className="link-row" key={index}><input placeholder="链接名称" value={link.label} onChange={(event) => updateLink(index, "label", event.target.value)} /><input placeholder="https://..." value={link.url} onChange={(event) => updateLink(index, "url", event.target.value)} /><button type="button" className="danger-button" onClick={() => setSite({ ...site, links: site.links.filter((_, current) => current !== index) })}>删除</button></div>) : <p className="muted">还没有链接。</p>}</div></section><section className="post-panel"><div className="panel-heading"><div><h2>About 页面</h2><p>支持 Markdown，用于完整个人介绍。</p></div></div><div className="form-grid"><label className="full">页面标题<input value={site.aboutTitle} placeholder="About" onChange={(event) => setSite({ ...site, aboutTitle: event.target.value })} /></label><label className="full">介绍内容<textarea className="about-editor" value={site.aboutContent} placeholder="# 你好\n\n介绍你自己、经历和正在做的事。" onChange={(event) => setSite({ ...site, aboutContent: event.target.value })} /></label></div><button disabled={loading}>{loading ? "正在保存…" : "保存所有站点资料"}</button></section></form> }

@@ -13,6 +13,12 @@ const sql = process.env.POSTGRES_URL ? postgres(process.env.POSTGRES_URL) : null
 const postSchema = z.object({
   title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), excerpt: z.string().default(""), content: z.string().default(""), tags: z.array(z.string()).default([]), status: z.enum(["draft", "hidden", "published"]), publishedAt: z.string().nullable(),
 })
+const projectSchema = z.object({
+  title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), description: z.string().default(""), tags: z.array(z.string()).default([]), url: z.string().url().or(z.literal("")), status: z.enum(["draft", "hidden", "published"]),
+})
+const siteSchema = z.object({
+  displayName: z.string().max(80).default(""), handle: z.string().max(80).default(""), avatarUrl: z.string().url().or(z.literal("")), homeIntro: z.string().max(240).default(""), aboutTitle: z.string().max(120).default(""), aboutContent: z.string().max(12000).default(""), links: z.array(z.object({ label: z.string().min(1).max(40), url: z.string().url() })).max(8).default([]),
+})
 const sign = (value: string) => createHmac("sha256", process.env.ADMIN_TOKEN_SECRET || "dev-only-secret").update(value).digest("hex")
 const authenticated = (c: any) => {
   const token = c.req.header("Authorization")?.replace("Bearer ", "")
@@ -25,7 +31,9 @@ const authenticated = (c: any) => {
 
 if (sql) {
   await sql`create table if not exists posts (id serial primary key, title text not null, slug text unique not null, excerpt text not null default '', content text not null default '', tags text[] not null default '{}', status text not null default 'draft', published_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now())`
-  await sql`create table if not exists projects (id serial primary key, title text not null, slug text unique not null, description text not null default '', tags text[] not null default '{}', status text not null default 'published', created_at timestamptz not null default now(), updated_at timestamptz not null default now())`
+  await sql`create table if not exists projects (id serial primary key, title text not null, slug text unique not null, description text not null default '', tags text[] not null default '{}', url text not null default '', status text not null default 'draft', created_at timestamptz not null default now(), updated_at timestamptz not null default now())`
+  await sql`alter table projects add column if not exists url text not null default ''`
+  await sql`create table if not exists site_profile (id smallint primary key default 1 check (id = 1), display_name text not null default '', handle text not null default '', avatar_url text not null default '', home_intro text not null default '', about_title text not null default '', about_content text not null default '', links jsonb not null default '[]'::jsonb, updated_at timestamptz not null default now())`
 }
 
 app.use("/*", cors({ origin: process.env.ALLOWED_ORIGIN || "http://localhost:3000" }))
@@ -36,7 +44,12 @@ app.get("/posts/:slug", async (c) => {
   const [post] = await sql`select title, published_at as date, tags, content as body from posts where slug = ${c.req.param("slug")} and status = 'published' and published_at <= now()`
   return post ? c.json({ ...post, minutes: Math.max(1, Math.ceil(post.body.length / 500)) }) : c.json({ message: "Not found" }, 404)
 })
-app.get("/projects", async (c) => c.json(sql ? await sql`select slug, title, description, tags from projects where status = 'published' order by created_at desc` : []))
+app.get("/projects", async (c) => c.json(sql ? await sql`select slug, title, description, tags, url from projects where status = 'published' order by created_at desc` : []))
+app.get("/site", async (c) => {
+  if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
+  const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links from site_profile where id = 1`
+  return c.json(site || { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
+})
 app.post("/admin/login", zValidator("json", z.object({ password: z.string() })), (c) => {
   if (!process.env.ADMIN_PASSWORD || c.req.valid("json").password !== process.env.ADMIN_PASSWORD) return c.json({ message: "Invalid password" }, 401)
   const value = String(Date.now() + 7 * 86400000)
@@ -45,6 +58,43 @@ app.post("/admin/login", zValidator("json", z.object({ password: z.string() })),
 app.get("/admin/posts", async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
   return c.json(sql ? await sql`select id, title, slug, excerpt, content, tags, status, published_at as "publishedAt" from posts order by updated_at desc` : [])
+})
+app.get("/admin/projects", async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  return c.json(sql ? await sql`select id, title, slug, description, tags, url, status from projects order by updated_at desc` : [])
+})
+app.post("/admin/projects", zValidator("json", projectSchema), async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  if (!sql) return c.json({ message: "Database not configured" }, 503)
+  const project = c.req.valid("json")
+  const [row] = await sql`insert into projects ${sql(project)} returning id`
+  return c.json(row, 201)
+})
+app.put("/admin/projects/:id", zValidator("json", projectSchema), async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  if (!sql) return c.json({ message: "Database not configured" }, 503)
+  const project = c.req.valid("json")
+  await sql`update projects set title = ${project.title}, slug = ${project.slug}, description = ${project.description}, tags = ${project.tags}, url = ${project.url}, status = ${project.status}, updated_at = now() where id = ${Number(c.req.param("id"))}`
+  return c.json({ ok: true })
+})
+app.delete("/admin/projects/:id", async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  if (!sql) return c.json({ message: "Database not configured" }, 503)
+  await sql`delete from projects where id = ${Number(c.req.param("id"))}`
+  return c.json({ ok: true })
+})
+app.get("/admin/site", async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
+  const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links from site_profile where id = 1`
+  return c.json(site || { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
+})
+app.put("/admin/site", zValidator("json", siteSchema), async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  if (!sql) return c.json({ message: "Database not configured" }, 503)
+  const site = c.req.valid("json")
+  await sql`insert into site_profile ${sql({ id: 1, display_name: site.displayName, handle: site.handle, avatar_url: site.avatarUrl, home_intro: site.homeIntro, about_title: site.aboutTitle, about_content: site.aboutContent, links: sql.json(site.links) })} on conflict (id) do update set display_name = excluded.display_name, handle = excluded.handle, avatar_url = excluded.avatar_url, home_intro = excluded.home_intro, about_title = excluded.about_title, about_content = excluded.about_content, links = excluded.links, updated_at = now()`
+  return c.json({ ok: true })
 })
 app.post("/admin/posts", zValidator("json", postSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
