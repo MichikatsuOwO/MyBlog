@@ -59,6 +59,11 @@ function decodeHtml(value) {
 function htmlToMarkdown(html) {
   const blocks = []
   const stash = (content) => `@@BLOCK_${blocks.push(content) - 1}@@`
+  const headingText = (content) => decodeHtml(content
+    .replace(/<a[^>]*href=["']#[^"']+["'][^>]*>[\s\S]*?<\/a>/gi, "")
+    .replace(/\s*\[[^\]]+\]\(#[^)]+\)/g, "")
+    .replace(/<[^>]+>/g, ""))
+    .trim()
   let text = html
     .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, "")
     .replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, (_, code) => stash(`\n\n\`\`\`\n${decodeHtml(code).trim()}\n\`\`\`\n\n`))
@@ -66,7 +71,7 @@ function htmlToMarkdown(html) {
     .replace(/<img[^>]*alt=["']([^"']*)["'][^>]*src=["']([^"']+)["'][^>]*>/gi, "![$1]($2)")
     .replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi, "![]($1)")
     .replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => `[${decodeHtml(label.replace(/<[^>]+>/g, "")).trim() || href}](${href})`)
-    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, content) => `\n\n${"#".repeat(Number(level))} ${decodeHtml(content.replace(/<[^>]+>/g, "")).trim()}\n\n`)
+    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, content) => `\n\n${"#".repeat(Number(level))} ${headingText(content)}\n\n`)
     .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, content) => `\n- ${content}`)
     .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, content) => `\n\n> ${content.replace(/<[^>]+>/g, "").trim()}\n\n`)
     .replace(/<br\s*\/?>/gi, "\n")
