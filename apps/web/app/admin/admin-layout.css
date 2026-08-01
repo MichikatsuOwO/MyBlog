@@ -1,0 +1,2 @@
+/* 后台不继承博客正文的窄栏版式，宽屏下应充分利用可用空间。 */
+.admin{box-sizing:border-box;width:100%;max-width:none;margin-left:0;padding:42px max(28px,calc((100vw - 1480px)/2))}.admin .post-panel{max-width:none}.admin .post-table{width:100%}@media(max-width:1050px){.admin{padding:32px 24px}}@media(max-width:760px){.admin{padding:20px 14px}}
