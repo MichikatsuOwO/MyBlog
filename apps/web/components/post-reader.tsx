@@ -20,7 +20,6 @@ export function PostReader({ post }: { post: Post }) {
 
   return <div className={`reader-site reader-serif ${light ? "light" : "dark"}`} style={style}>
     <header className="reader-header">
-      <Link href="/" className="reader-brand">M.</Link>
       <Link href="/" className="reader-back">← 返回博客</Link>
       <button className="reader-settings-trigger" type="button" onClick={() => setSettings(!settings)} aria-expanded={settings}>阅读设置</button>
     </header>
