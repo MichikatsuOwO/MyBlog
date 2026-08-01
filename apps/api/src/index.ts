@@ -16,7 +16,7 @@ const postSchema = z.object({
   title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), excerpt: z.string().default(""), content: z.string().default(""), tags: z.array(z.string()).default([]), status: z.enum(["draft", "hidden", "published"]), pinned: z.boolean().default(false), publishedAt: z.string().nullable(),
 })
 const projectSchema = z.object({
-  title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), description: z.string().default(""), tags: z.array(z.string()).default([]), url: z.string().url().or(z.literal("")), status: z.enum(["draft", "hidden", "published"]),
+  title: z.string().min(1), slug: z.string().min(1).regex(/^[a-z0-9-]+$/), description: z.string().default(""), content: z.string().max(60000).default(""), coverUrl: z.string().max(500).default(""), tags: z.array(z.string()).default([]), url: z.string().url().or(z.literal("")), status: z.enum(["draft", "hidden", "published"]),
 })
 const siteSchema = z.object({
   displayName: z.string().max(80).default(""), handle: z.string().max(80).default(""), avatarUrl: z.string().max(500).default(""), homeIntro: z.string().max(240).default(""), aboutTitle: z.string().max(120).default(""), aboutContent: z.string().max(12000).default(""), links: z.array(z.object({ label: z.string().min(1).max(40), url: z.string().url() })).max(8).default([]),
@@ -36,6 +36,8 @@ if (sql) {
   await sql`alter table posts add column if not exists pinned boolean not null default false`
   await sql`create table if not exists projects (id serial primary key, title text not null, slug text unique not null, description text not null default '', tags text[] not null default '{}', url text not null default '', status text not null default 'draft', created_at timestamptz not null default now(), updated_at timestamptz not null default now())`
   await sql`alter table projects add column if not exists url text not null default ''`
+  await sql`alter table projects add column if not exists content text not null default ''`
+  await sql`alter table projects add column if not exists cover_url text not null default ''`
   await sql`create table if not exists site_profile (id smallint primary key default 1 check (id = 1), display_name text not null default '', handle text not null default '', avatar_url text not null default '', home_intro text not null default '', about_title text not null default '', about_content text not null default '', links jsonb not null default '[]'::jsonb, updated_at timestamptz not null default now())`
 }
 
@@ -47,7 +49,12 @@ app.get("/posts/:slug", async (c) => {
   const [post] = await sql`select title, published_at as date, tags, content as body from posts where slug = ${c.req.param("slug")} and status = 'published' and published_at <= now()`
   return post ? c.json({ ...post, minutes: Math.max(1, Math.ceil(post.body.length / 500)) }) : c.json({ message: "Not found" }, 404)
 })
-app.get("/projects", async (c) => c.json(sql ? await sql`select slug, title, description, tags, url from projects where status = 'published' order by created_at desc` : []))
+app.get("/projects", async (c) => c.json(sql ? await sql`select slug, title, description, content, cover_url as "coverUrl", tags, url from projects where status = 'published' order by created_at desc` : []))
+app.get("/projects/:slug", async (c) => {
+  if (!sql) return c.json({ message: "Not found" }, 404)
+  const [project] = await sql`select slug, title, description, content, cover_url as "coverUrl", tags, url from projects where slug = ${c.req.param("slug")} and status = 'published'`
+  return project ? c.json(project) : c.json({ message: "Not found" }, 404)
+})
 app.get("/site", async (c) => {
   if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
   const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links from site_profile where id = 1`
@@ -64,20 +71,20 @@ app.get("/admin/posts", async (c) => {
 })
 app.get("/admin/projects", async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
-  return c.json(sql ? await sql`select id, title, slug, description, tags, url, status from projects order by updated_at desc` : [])
+  return c.json(sql ? await sql`select id, title, slug, description, content, cover_url as "coverUrl", tags, url, status from projects order by updated_at desc` : [])
 })
 app.post("/admin/projects", zValidator("json", projectSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
   if (!sql) return c.json({ message: "Database not configured" }, 503)
   const project = c.req.valid("json")
-  const [row] = await sql`insert into projects ${sql(project)} returning id`
+  const [row] = await sql`insert into projects ${sql({ title: project.title, slug: project.slug, description: project.description, content: project.content, cover_url: project.coverUrl, tags: project.tags, url: project.url, status: project.status })} returning id`
   return c.json(row, 201)
 })
 app.put("/admin/projects/:id", zValidator("json", projectSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
   if (!sql) return c.json({ message: "Database not configured" }, 503)
   const project = c.req.valid("json")
-  await sql`update projects set title = ${project.title}, slug = ${project.slug}, description = ${project.description}, tags = ${project.tags}, url = ${project.url}, status = ${project.status}, updated_at = now() where id = ${Number(c.req.param("id"))}`
+  await sql`update projects set title = ${project.title}, slug = ${project.slug}, description = ${project.description}, content = ${project.content}, cover_url = ${project.coverUrl}, tags = ${project.tags}, url = ${project.url}, status = ${project.status}, updated_at = now() where id = ${Number(c.req.param("id"))}`
   return c.json({ ok: true })
 })
 app.delete("/admin/projects/:id", async (c) => {
@@ -111,9 +118,19 @@ app.post("/admin/uploads/avatar", async (c) => {
   await writeFile(path.join(uploadDirectory, filename), Buffer.from(await file.arrayBuffer()))
   return c.json({ url: `/api/uploads/${filename}` }, 201)
 })
+app.post("/admin/uploads/image", async (c) => {
+  if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
+  const body = await c.req.parseBody()
+  const file = body.file
+  if (!(file instanceof File) || !imageTypes[file.type] || file.size > 5 * 1024 * 1024) return c.json({ message: "请上传不超过 5MB 的 JPG、PNG 或 WebP 图片。" }, 400)
+  await mkdir(uploadDirectory, { recursive: true })
+  const filename = `image-${crypto.randomUUID()}.${imageTypes[file.type]}`
+  await writeFile(path.join(uploadDirectory, filename), Buffer.from(await file.arrayBuffer()))
+  return c.json({ url: `/api/uploads/${filename}` }, 201)
+})
 app.get("/uploads/:filename", async (c) => {
   const filename = c.req.param("filename")
-  if (!/^avatar-[a-f0-9-]+\.(jpg|png|webp)$/.test(filename)) return c.notFound()
+  if (!/^(avatar|image)-[a-f0-9-]+\.(jpg|png|webp)$/.test(filename)) return c.notFound()
   try {
     const contentType = filename.endsWith(".png") ? "image/png" : filename.endsWith(".webp") ? "image/webp" : "image/jpeg"
     return new Response(await readFile(path.join(uploadDirectory, filename)), { headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=31536000, immutable" } })

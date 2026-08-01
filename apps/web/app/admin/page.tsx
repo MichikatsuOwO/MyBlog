@@ -3,15 +3,16 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Markdown } from "../../components/markdown"
 import { PostEditor } from "../../components/admin-post-editor"
+import { ProjectEditor as RichProjectEditor } from "../../components/project-editor"
 
 const api = process.env.NEXT_PUBLIC_API_URL || "/api"
 type Status = "draft" | "hidden" | "published"
 type Post = { id?: number; title: string; slug: string; excerpt: string; content: string; tags: string[]; status: Status; pinned: boolean; publishedAt: string | null }
-type Project = { id?: number; title: string; slug: string; description: string; tags: string[]; url: string; status: Status }
+type Project = { id?: number; title: string; slug: string; description: string; content: string; coverUrl: string; tags: string[]; url: string; status: Status }
 type Link = { label: string; url: string }
 type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: Link[] }
 const blankPost = (): Post => ({ title: "", slug: "", excerpt: "", content: "", tags: [], status: "draft", pinned: false, publishedAt: null })
-const blankProject = (): Project => ({ title: "", slug: "", description: "", tags: [], url: "", status: "draft" })
+const blankProject = (): Project => ({ title: "", slug: "", description: "", content: "", coverUrl: "", tags: [], url: "", status: "draft" })
 const blankSite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] }
 const statusText: Record<Status, string> = { draft: "草稿", hidden: "隐藏", published: "已发布" }
 const toLocalTime = (date: string | null) => date ? new Date(new Date(date).getTime() - new Date(date).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""
@@ -42,6 +43,7 @@ export default function Admin() {
   const saveProject = async (event: FormEvent) => { event.preventDefault(); if (!project.title || !project.slug) return setNotice("项目需要名称和 slug。"); setLoading(true); const response = await request(`/admin/projects${project.id ? `/${project.id}` : ""}`, { method: project.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project) }); setLoading(false); if (!response.ok) return setNotice("项目保存失败，请检查链接和 slug。"); setNotice(project.status === "published" ? "项目已发布。" : "项目草稿已保存。"); setMode("list"); await load() }
   const saveSite = async (event: FormEvent) => { event.preventDefault(); setLoading(true); const response = await request("/admin/site", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(site) }); setLoading(false); if (!response.ok) return setNotice("站点资料保存失败，请检查头像和链接地址。"); setNotice("站点资料已保存，前台刷新后即可看到更新。"); await load() }
   const uploadAvatar = async (file: File) => { const body = new FormData(); body.append("file", file); const response = await request("/admin/uploads/avatar", { method: "POST", body }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.message || "头像上传失败。"); return result.url as string }
+  const uploadProjectImage = async (file: File) => { const body = new FormData(); body.append("file", file); const response = await request("/admin/uploads/image", { method: "POST", body }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.message || "图片上传失败。"); return result.url as string }
   const remove = async (kind: "posts" | "projects", item: Post | Project) => { if (!item.id || !window.confirm(`确定删除《${item.title}》吗？`)) return; setLoading(true); const response = await request(`/admin/${kind}/${item.id}`, { method: "DELETE" }); setLoading(false); if (!response.ok) return setNotice("删除失败，请稍后重试。"); setNotice("已删除。"); await load() }
   const logout = () => { sessionStorage.removeItem("blog-admin-token"); setToken(""); setNotice("") }
 
@@ -52,7 +54,7 @@ export default function Admin() {
     <nav className="admin-nav"><button className={section === "posts" ? "active" : ""} onClick={() => { setSection("posts"); setMode("list") }}>文章 <span>{stats.posts}</span></button><button className={section === "projects" ? "active" : ""} onClick={() => { setSection("projects"); setMode("list") }}>项目 <span>{stats.projects}</span></button><button className={section === "site" ? "active" : ""} onClick={() => { setSection("site"); setMode("list") }}>站点资料</button></nav>
     {notice && <div className="notice">{notice}<button className="dismiss" onClick={() => setNotice("")}>×</button></div>}
     {section === "posts" && (mode === "list" ? <List title="文章" hint="发布的文章会显示在首页和 Blog 页面。" count={stats.published} countLabel="已发布" loading={loading} empty="还没有文章，从第一篇开始吧。" create={() => { setPost(blankPost()); setPreview(false); setMode("edit") }} items={posts} edit={(item) => { setPost(item as Post); setPreview(false); setMode("edit") }} remove={(item) => remove("posts", item)} /> : <PostEditor post={post} setPost={setPost} preview={preview} setPreview={setPreview} back={() => setMode("list")} save={savePost} loading={loading} />)}
-    {section === "projects" && (mode === "list" ? <List title="项目" hint="项目可以附带官网、仓库或作品链接。" count={projects.filter((item) => item.status === "published").length} countLabel="已发布" loading={loading} empty="还没有项目，添加一个作品吧。" create={() => { setProject(blankProject()); setMode("edit") }} items={projects} edit={(item) => { setProject(item as Project); setMode("edit") }} remove={(item) => remove("projects", item)} /> : <ProjectEditor project={project} setProject={setProject} back={() => setMode("list")} save={saveProject} loading={loading} />)}
+    {section === "projects" && (mode === "list" ? <List title="项目" hint="项目可以附带官网、仓库或作品链接。" count={projects.filter((item) => item.status === "published").length} countLabel="已发布" loading={loading} empty="还没有项目，添加一个作品吧。" create={() => { setProject(blankProject()); setMode("edit") }} items={projects} edit={(item) => { setProject(item as Project); setMode("edit") }} remove={(item) => remove("projects", item)} /> : <RichProjectEditor project={project} setProject={setProject} back={() => setMode("list")} save={saveProject} upload={uploadProjectImage} loading={loading} />)}
     {section === "site" && <SiteEditor site={site} setSite={setSite} save={saveSite} upload={uploadAvatar} loading={loading} />}
   </main>
 }

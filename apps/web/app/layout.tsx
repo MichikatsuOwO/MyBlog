@@ -20,5 +20,7 @@ import "./admin/pins.css"
 import "./mobile.css"
 import "./responsive-fixes.css"
 import "./desktop-layout.css"
+import "./project-detail.css"
+import "./admin/project-editor.css"
 export const metadata: Metadata = { title: "Michikatsu｜个人网站", description: "Michikatsu 的文章、项目与个人介绍" }
 export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="zh-CN"><body>{children}</body></html> }
