@@ -1,0 +1,16 @@
+/* 宽屏下让侧栏与内容区形成更均衡的画布，避免内容挤在视口中央。 */
+@media (min-width: 1051px) {
+  .site aside {
+    left: max(24px, calc((100vw - 1480px) / 2));
+  }
+
+  .site main {
+    max-width: 1080px;
+    margin-left: calc(max(24px, calc((100vw - 1480px) / 2)) + 296px);
+  }
+}
+
+/* 保留项目缩略图的暖色背景。 */
+.studio .screen-content {
+  background: #e8dfd0;
+}
