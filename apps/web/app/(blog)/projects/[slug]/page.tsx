@@ -6,7 +6,7 @@ type Project = { title: string; description: string; content: string; coverUrl: 
 
 async function getProject(slug: string): Promise<Project | null> {
   try {
-    const response = await fetch(`${API}/projects/${slug}`, { next: { revalidate: 60 } })
+    const response = await fetch(`${API}/projects/${slug}`, { cache: "no-store" })
     return response.ok ? response.json() : null
   } catch { return null }
 }
