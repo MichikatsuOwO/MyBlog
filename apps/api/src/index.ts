@@ -20,6 +20,8 @@ const projectSchema = z.object({
 })
 const siteSchema = z.object({
   displayName: z.string().max(80).default(""), handle: z.string().max(80).default(""), avatarUrl: z.string().max(500).default(""), homeIntro: z.string().max(240).default(""), aboutTitle: z.string().max(120).default(""), aboutContent: z.string().max(12000).default(""), links: z.array(z.object({ label: z.string().min(1).max(40), url: z.string().url() })).max(8).default([]),
+  education: z.array(z.object({ organization: z.string().max(120).default(""), title: z.string().max(120).default(""), period: z.string().max(80).default(""), location: z.string().max(100).default(""), description: z.string().max(1200).default("") })).max(20).default([]),
+  workExperience: z.array(z.object({ organization: z.string().max(120).default(""), title: z.string().max(120).default(""), period: z.string().max(80).default(""), location: z.string().max(100).default(""), description: z.string().max(1200).default("") })).max(20).default([]),
 })
 const sign = (value: string) => createHmac("sha256", process.env.ADMIN_TOKEN_SECRET || "dev-only-secret").update(value).digest("hex")
 const authenticated = (c: any) => {
@@ -39,6 +41,8 @@ if (sql) {
   await sql`alter table projects add column if not exists content text not null default ''`
   await sql`alter table projects add column if not exists cover_url text not null default ''`
   await sql`create table if not exists site_profile (id smallint primary key default 1 check (id = 1), display_name text not null default '', handle text not null default '', avatar_url text not null default '', home_intro text not null default '', about_title text not null default '', about_content text not null default '', links jsonb not null default '[]'::jsonb, updated_at timestamptz not null default now())`
+  await sql`alter table site_profile add column if not exists education jsonb not null default '[]'::jsonb`
+  await sql`alter table site_profile add column if not exists work_experience jsonb not null default '[]'::jsonb`
 }
 
 app.use("/*", cors({ origin: process.env.ALLOWED_ORIGIN || "http://localhost:3000" }))
@@ -56,9 +60,9 @@ app.get("/projects/:slug", async (c) => {
   return project ? c.json(project) : c.json({ message: "Not found" }, 404)
 })
 app.get("/site", async (c) => {
-  if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
-  const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links from site_profile where id = 1`
-  return c.json(site || { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
+  if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [], education: [], workExperience: [] })
+  const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links, education, work_experience as "workExperience" from site_profile where id = 1`
+  return c.json(site || { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [], education: [], workExperience: [] })
 })
 app.post("/admin/login", zValidator("json", z.object({ password: z.string() })), (c) => {
   if (!process.env.ADMIN_PASSWORD || c.req.valid("json").password !== process.env.ADMIN_PASSWORD) return c.json({ message: "Invalid password" }, 401)
@@ -95,15 +99,15 @@ app.delete("/admin/projects/:id", async (c) => {
 })
 app.get("/admin/site", async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
-  if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
-  const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links from site_profile where id = 1`
-  return c.json(site || { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] })
+  if (!sql) return c.json({ displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [], education: [], workExperience: [] })
+  const [site] = await sql`select display_name as "displayName", handle, avatar_url as "avatarUrl", home_intro as "homeIntro", about_title as "aboutTitle", about_content as "aboutContent", links, education, work_experience as "workExperience" from site_profile where id = 1`
+  return c.json(site || { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [], education: [], workExperience: [] })
 })
 app.put("/admin/site", zValidator("json", siteSchema), async (c) => {
   if (!authenticated(c)) return c.json({ message: "Unauthorized" }, 401)
   if (!sql) return c.json({ message: "Database not configured" }, 503)
   const site = c.req.valid("json")
-  await sql`insert into site_profile ${sql({ id: 1, display_name: site.displayName, handle: site.handle, avatar_url: site.avatarUrl, home_intro: site.homeIntro, about_title: site.aboutTitle, about_content: site.aboutContent, links: sql.json(site.links) })} on conflict (id) do update set display_name = excluded.display_name, handle = excluded.handle, avatar_url = excluded.avatar_url, home_intro = excluded.home_intro, about_title = excluded.about_title, about_content = excluded.about_content, links = excluded.links, updated_at = now()`
+  await sql`insert into site_profile ${sql({ id: 1, display_name: site.displayName, handle: site.handle, avatar_url: site.avatarUrl, home_intro: site.homeIntro, about_title: site.aboutTitle, about_content: site.aboutContent, links: sql.json(site.links), education: sql.json(site.education), work_experience: sql.json(site.workExperience) })} on conflict (id) do update set display_name = excluded.display_name, handle = excluded.handle, avatar_url = excluded.avatar_url, home_intro = excluded.home_intro, about_title = excluded.about_title, about_content = excluded.about_content, links = excluded.links, education = excluded.education, work_experience = excluded.work_experience, updated_at = now()`
   return c.json({ ok: true })
 })
 const uploadDirectory = process.env.UPLOAD_DIR || "/app/uploads"

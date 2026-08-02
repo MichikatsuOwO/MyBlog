@@ -4,16 +4,18 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Markdown } from "../../components/markdown"
 import { PostEditor } from "../../components/admin-post-editor"
 import { ProjectEditor as RichProjectEditor } from "../../components/project-editor"
+import { ResumeEditor } from "../../components/resume-editor"
 
 const api = process.env.NEXT_PUBLIC_API_URL || "/api"
 type Status = "draft" | "hidden" | "published"
 type Post = { id?: number; title: string; slug: string; excerpt: string; content: string; tags: string[]; status: Status; pinned: boolean; publishedAt: string | null }
 type Project = { id?: number; title: string; slug: string; description: string; content: string; coverUrl: string; tags: string[]; url: string; status: Status }
 type Link = { label: string; url: string }
-type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: Link[] }
+type ResumeItem = { organization: string; title: string; period: string; location: string; description: string }
+type Site = { displayName: string; handle: string; avatarUrl: string; homeIntro: string; aboutTitle: string; aboutContent: string; links: Link[]; education: ResumeItem[]; workExperience: ResumeItem[] }
 const blankPost = (): Post => ({ title: "", slug: "", excerpt: "", content: "", tags: [], status: "draft", pinned: false, publishedAt: null })
 const blankProject = (): Project => ({ title: "", slug: "", description: "", content: "", coverUrl: "", tags: [], url: "", status: "draft" })
-const blankSite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [] }
+const blankSite: Site = { displayName: "", handle: "", avatarUrl: "", homeIntro: "", aboutTitle: "", aboutContent: "", links: [], education: [], workExperience: [] }
 const statusText: Record<Status, string> = { draft: "草稿", hidden: "隐藏", published: "已发布" }
 const toLocalTime = (date: string | null) => date ? new Date(new Date(date).getTime() - new Date(date).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""
 const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
@@ -32,7 +34,7 @@ export default function Admin() {
     if (postsResponse.status === 401) { sessionStorage.removeItem("blog-admin-token"); setToken(""); setNotice("登录已过期，请重新登录。"); setLoading(false); return }
     if (postsResponse.ok) setPosts(await postsResponse.json())
     if (projectsResponse.ok) setProjects(await projectsResponse.json())
-    if (siteResponse.ok) { const nextSite = await siteResponse.json(); setSite({ ...blankSite, ...nextSite, links: Array.isArray(nextSite.links) ? nextSite.links : [] }) }
+    if (siteResponse.ok) { const nextSite = await siteResponse.json(); setSite({ ...blankSite, ...nextSite, links: Array.isArray(nextSite.links) ? nextSite.links : [], education: Array.isArray(nextSite.education) ? nextSite.education : [], workExperience: Array.isArray(nextSite.workExperience) ? nextSite.workExperience : [] }) }
     setLoading(false)
   }
   useEffect(() => { const saved = sessionStorage.getItem("blog-admin-token"); if (saved) { setToken(saved); void load(saved) } }, [])
@@ -41,7 +43,7 @@ export default function Admin() {
   const login = async (event: FormEvent) => { event.preventDefault(); setNotice(""); const response = await fetch(`${api}/admin/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }); if (!response.ok) return setNotice("密码不正确，请重试。"); const data = await response.json(); sessionStorage.setItem("blog-admin-token", data.token); setToken(data.token); setPassword(""); void load(data.token) }
   const savePost = async (event: FormEvent) => { event.preventDefault(); if (!post.title || !post.slug) return setNotice("文章需要标题和 slug。"); const payload = post.status === "published" && !post.publishedAt ? { ...post, publishedAt: new Date().toISOString() } : post; setLoading(true); const response = await request(`/admin/posts${post.id ? `/${post.id}` : ""}`, { method: post.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); setLoading(false); if (!response.ok) return setNotice("保存失败，请检查 slug 是否唯一且仅含英文、数字、连字符。"); setNotice(payload.status === "published" ? "文章已发布。" : "草稿已保存。"); setMode("list"); await load() }
   const saveProject = async (event: FormEvent) => { event.preventDefault(); if (!project.title || !project.slug) return setNotice("项目需要名称和 slug。"); setLoading(true); const response = await request(`/admin/projects${project.id ? `/${project.id}` : ""}`, { method: project.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project) }); setLoading(false); if (!response.ok) return setNotice("项目保存失败，请检查链接和 slug。"); setNotice(project.status === "published" ? "项目已发布。" : "项目草稿已保存。"); setMode("list"); await load() }
-  const saveSite = async (event: FormEvent) => { event.preventDefault(); setLoading(true); const response = await request("/admin/site", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(site) }); setLoading(false); if (!response.ok) return setNotice("站点资料保存失败，请检查头像和链接地址。"); setNotice("站点资料已保存，前台刷新后即可看到更新。"); await load() }
+  const saveSite = async (event?: FormEvent) => { event?.preventDefault(); setLoading(true); const response = await request("/admin/site", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(site) }); setLoading(false); if (!response.ok) return setNotice("站点资料保存失败，请检查头像和链接地址。"); setNotice("站点资料已保存，前台刷新后即可看到更新。"); await load() }
   const uploadAvatar = async (file: File) => { const body = new FormData(); body.append("file", file); const response = await request("/admin/uploads/avatar", { method: "POST", body }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.message || "头像上传失败。"); return result.url as string }
   const uploadProjectImage = async (file: File) => { const body = new FormData(); body.append("file", file); const response = await request("/admin/uploads/image", { method: "POST", body }); const result = await response.json().catch(() => null); if (!response.ok) throw new Error(result?.message || "图片上传失败。"); return result.url as string }
   const remove = async (kind: "posts" | "projects", item: Post | Project) => { if (!item.id || !window.confirm(`确定删除《${item.title}》吗？`)) return; setLoading(true); const response = await request(`/admin/${kind}/${item.id}`, { method: "DELETE" }); setLoading(false); if (!response.ok) return setNotice("删除失败，请稍后重试。"); setNotice("已删除。"); await load() }
@@ -55,7 +57,7 @@ export default function Admin() {
     {notice && <div className="notice">{notice}<button className="dismiss" onClick={() => setNotice("")}>×</button></div>}
     {section === "posts" && (mode === "list" ? <List title="文章" hint="发布的文章会显示在首页和 Blog 页面。" count={stats.published} countLabel="已发布" loading={loading} empty="还没有文章，从第一篇开始吧。" create={() => { setPost(blankPost()); setPreview(false); setMode("edit") }} items={posts} edit={(item) => { setPost(item as Post); setPreview(false); setMode("edit") }} remove={(item) => remove("posts", item)} /> : <PostEditor post={post} setPost={setPost} preview={preview} setPreview={setPreview} back={() => setMode("list")} save={savePost} loading={loading} />)}
     {section === "projects" && (mode === "list" ? <List title="项目" hint="项目可以附带官网、仓库或作品链接。" count={projects.filter((item) => item.status === "published").length} countLabel="已发布" loading={loading} empty="还没有项目，添加一个作品吧。" create={() => { setProject(blankProject()); setMode("edit") }} items={projects} edit={(item) => { setProject(item as Project); setMode("edit") }} remove={(item) => remove("projects", item)} /> : <RichProjectEditor project={project} setProject={setProject} back={() => setMode("list")} save={saveProject} upload={uploadProjectImage} loading={loading} />)}
-    {section === "site" && <SiteEditor site={site} setSite={setSite} save={saveSite} upload={uploadAvatar} loading={loading} />}
+    {section === "site" && <><SiteEditor site={site} setSite={setSite} save={saveSite} upload={uploadAvatar} loading={loading} /><ResumeEditor title="教育经历" description="按时间填写学校、专业、学历与学习重点；前台会自动排成时间线。" kind="education" items={site.education} onChange={(education) => setSite({ ...site, education })} save={() => void saveSite()} loading={loading} /><ResumeEditor title="工作经历" description="按时间填写公司、职位、地点与职责或成果；支持添加多段经历。" kind="work" items={site.workExperience} onChange={(workExperience) => setSite({ ...site, workExperience })} save={() => void saveSite()} loading={loading} /></>}
   </main>
 }
 
